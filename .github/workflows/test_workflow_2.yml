@@ -1,0 +1,81 @@
+name: test_workflow_2
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch_name:
+        description: Branch name to build, test, and create IPA from
+        required: true
+        type: string
+        default: main
+
+jobs:
+  build_test_and_ipa:
+    name: Build, Unit Test and Create IPA
+    runs-on: macos-13
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch_name }}
+
+      - name: Print Selected Branch
+        run: echo "Building branch ${{ inputs.branch_name }}"
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: |
+            Pods
+            ~/Library/Caches/CocoaPods
+          key: ${{ runner.os }}-cocoapods-${{ hashFiles('**/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cocoapods-
+
+      - name: Setup CocoaPods
+        run: |
+          gem install cocoapods
+          pod install --repo-update
+
+      - name: Build and Run Unit Tests
+        run: |
+          set -o pipefail
+          DESTINATION=$(xcrun simctl list devices available | grep -m 1 "iPhone" | sed -E 's/.*\(([A-F0-9-]+)\).*/\1/')
+          xcodebuild \
+            -workspace "Pocket Contacts Pro.xcworkspace" \
+            -scheme "Pocket Contacts Pro" \
+            -destination "platform=iOS Simulator,id=${DESTINATION}" \
+            -configuration Debug \
+            clean test \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Archive Application
+        run: |
+          set -o pipefail
+          mkdir -p build
+          xcodebuild \
+            -workspace "Pocket Contacts Pro.xcworkspace" \
+            -scheme "Pocket Contacts Pro" \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath "$PWD/build/PocketContactsPro.xcarchive" \
+            clean archive \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Create IPA
+        run: |
+          mkdir -p build/ipa/Payload
+          cp -R "build/PocketContactsPro.xcarchive/Products/Applications/Pocket Contacts Pro.app" build/ipa/Payload/
+          cd build/ipa
+          zip -r "../PocketContactsPro.ipa" Payload
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PocketContactsPro-IPA-${{ inputs.branch_name }}
+          path: build/PocketContactsPro.ipa
+          if-no-files-found: error
