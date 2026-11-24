@@ -11,7 +11,7 @@ on:
 jobs:
   build_test_and_ipa:
     name: Build, Unit Test and Create IPA
-    runs-on: macos-latest
+    runs-on: macos-13
 
     steps:
       - name: Checkout Repository
